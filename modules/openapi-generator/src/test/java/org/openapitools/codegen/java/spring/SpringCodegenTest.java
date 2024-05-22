@@ -17,6 +17,52 @@
 
 package org.openapitools.codegen.java.spring;
 
+import com.google.common.collect.ImmutableMap;
+import io.swagger.parser.OpenAPIParser;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.Operation;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.servers.Server;
+import io.swagger.v3.parser.core.models.ParseOptions;
+import org.apache.commons.lang3.StringUtils;
+import org.assertj.core.api.MapAssert;
+import org.openapitools.codegen.CliOption;
+import org.openapitools.codegen.ClientOptInput;
+import org.openapitools.codegen.CodegenConstants;
+import org.openapitools.codegen.CodegenModel;
+import org.openapitools.codegen.CodegenOperation;
+import org.openapitools.codegen.CodegenParameter;
+import org.openapitools.codegen.CodegenProperty;
+import org.openapitools.codegen.DefaultGenerator;
+import org.openapitools.codegen.SupportingFile;
+import org.openapitools.codegen.TestUtils;
+import org.openapitools.codegen.config.CodegenConfigurator;
+import org.openapitools.codegen.config.GlobalSettings;
+import org.openapitools.codegen.java.assertions.JavaFileAssert;
+import org.openapitools.codegen.languages.AbstractJavaCodegen;
+import org.openapitools.codegen.languages.JavaClientCodegen;
+import org.openapitools.codegen.languages.SpringCodegen;
+import org.openapitools.codegen.languages.features.BeanValidationFeatures;
+import org.openapitools.codegen.languages.features.CXFServerFeatures;
+import org.openapitools.codegen.languages.features.DocumentationProviderFeatures;
+import org.testng.Assert;
+import org.testng.annotations.DataProvider;
+import org.testng.annotations.Ignore;
+import org.testng.annotations.Test;
+
+import java.io.File;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 import static java.util.stream.Collectors.groupingBy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.openapitools.codegen.TestUtils.assertFileContains;
@@ -44,54 +90,6 @@ import static org.openapitools.codegen.languages.features.DocumentationProviderF
 import static org.openapitools.codegen.languages.features.DocumentationProviderFeatures.DOCUMENTATION_PROVIDER;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.fail;
-
-import java.io.File;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
-import org.apache.commons.lang3.StringUtils;
-import org.assertj.core.api.MapAssert;
-import org.openapitools.codegen.CliOption;
-import org.openapitools.codegen.ClientOptInput;
-import org.openapitools.codegen.CodegenConstants;
-import org.openapitools.codegen.CodegenModel;
-import org.openapitools.codegen.CodegenOperation;
-import org.openapitools.codegen.CodegenParameter;
-import org.openapitools.codegen.CodegenProperty;
-import org.openapitools.codegen.DefaultGenerator;
-import org.openapitools.codegen.SupportingFile;
-import org.openapitools.codegen.TestUtils;
-import org.openapitools.codegen.config.CodegenConfigurator;
-import org.openapitools.codegen.config.GlobalSettings;
-import org.openapitools.codegen.java.assertions.JavaFileAssert;
-import org.openapitools.codegen.languages.AbstractJavaCodegen;
-import org.openapitools.codegen.languages.JavaClientCodegen;
-import org.openapitools.codegen.languages.SpringCodegen;
-import org.openapitools.codegen.languages.features.BeanValidationFeatures;
-import org.openapitools.codegen.languages.features.CXFServerFeatures;
-import org.openapitools.codegen.languages.features.DocumentationProviderFeatures;
-import org.testng.Assert;
-import org.testng.annotations.DataProvider;
-import org.testng.annotations.Ignore;
-import org.testng.annotations.Test;
-
-import com.google.common.collect.ImmutableMap;
-
-import io.swagger.parser.OpenAPIParser;
-import io.swagger.v3.oas.models.OpenAPI;
-import io.swagger.v3.oas.models.Operation;
-import io.swagger.v3.oas.models.info.Info;
-import io.swagger.v3.oas.models.media.Schema;
-import io.swagger.v3.oas.models.servers.Server;
-import io.swagger.v3.parser.core.models.ParseOptions;
 
 public class SpringCodegenTest {
 
@@ -4518,4 +4516,37 @@ public class SpringCodegenTest {
                 .assertMethod("equals")
         ;
     }
+
+    @Test
+    public void testCollectionTypesWithDefaults_issue_collection() throws IOException {
+        File output = Files.createTempDirectory("test").toFile().getCanonicalFile();
+        output.deleteOnExit();
+
+        OpenAPI openAPI = new OpenAPIParser()
+                .readLocation("src/test/resources/3_0/java/issue_collection.yaml", null, new ParseOptions()).getOpenAPI();
+        SpringCodegen codegen = new SpringCodegen();
+        codegen.setLibrary(SPRING_CLOUD_LIBRARY);
+        codegen.setOutputDir(output.getAbsolutePath());
+        codegen.additionalProperties().put(CodegenConstants.MODEL_PACKAGE, "xyz.model");
+        codegen.additionalProperties().put(CodegenConstants.API_NAME_SUFFIX, "Controller");
+        codegen.additionalProperties().put(CodegenConstants.API_PACKAGE, "xyz.controller");
+        codegen.additionalProperties().put(CodegenConstants.MODEL_NAME_SUFFIX, "Dto");
+        codegen.setContainerDefaultToNull(false);
+
+
+        ClientOptInput input = new ClientOptInput()
+                .openAPI(openAPI)
+                .config(codegen);
+
+        DefaultGenerator generator = new DefaultGenerator();
+        Map<String, File> files = generator.opts(input).generate().stream()
+                .collect(Collectors.toMap(File::getName, Function.identity()));
+
+        JavaFileAssert.assertThat(files.get("PetDto.java"))
+                .fileContains("private List<@Valid TagDto> tags;")
+                .fileContains("private List<@Valid TagDto> tagsRequiredList = new ArrayList<>();")
+                .fileContains("private List<String> stringList;")
+                .fileContains("private List<String> stringRequiredList = new ArrayList<>();");
+    }
+
 }
